@@ -1,0 +1,112 @@
+name: Auto Update XML
+
+on:
+  schedule:
+    # Runs at minute 0 past every hour.
+    # You can change this, e.g., '0 */6 * * *' to run every 6 hours
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allows you to run it manually from the GitHub Actions tab
+
+jobs:
+  update-xml:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to push changes back to the repo
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Check and update XML
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat << 'EOF' > check_release.py
+import json
+import urllib.request
+import xml.etree.ElementTree as ET
+import os
+
+# --- CONFIGURATION ---
+TARGET_REPO = "gorhill/uBlock" # Change to the target repository (e.g., name/project)
+XML_FILE = "update.xml"
+XMLNS = "http://www.google.com/update2/response"
+
+ET.register_namespace('', XMLNS)
+
+try:
+    api_url = f"https://api.github.com/repos/{TARGET_REPO}/releases/latest"
+    headers = {'User-Agent': 'GitHub Action'}
+    token = os.environ.get('GITHUB_TOKEN')
+    if token:
+        headers['Authorization'] = f'token {token}'
+        
+    req = urllib.request.Request(api_url, headers=headers)
+    with urllib.request.urlopen(req) as response:
+        data = json.loads(response.read().decode())
+
+    # Extract version from tag (removes 'v' prefix if present)
+    latest_version = data['tag_name']
+    if latest_version.startswith('v'):
+        latest_version = latest_version[1:]
+
+    tree = ET.parse(XML_FILE)
+    root = tree.getroot()
+
+    updatecheck = root.find(f".//{{{XMLNS}}}updatecheck")
+    if updatecheck is None:
+        print("updatecheck element not found.")
+        exit(1)
+
+    current_version = updatecheck.get('version')
+
+    if current_version != latest_version:
+        print(f"New version found: {latest_version}")
+        updatecheck.set('version', latest_version)
+        
+        # Try to find the exact asset URL for the .chromium.crx file
+        crx_url = None
+        for asset in data.get('assets', []):
+            if asset['name'].endswith('.chromium.crx'):
+                crx_url = asset['browser_download_url']
+                break
+                
+        if crx_url:
+            updatecheck.set('codebase', crx_url)
+        else:
+            # Fallback: string replacement if the exact asset isn't found
+            old_codebase = updatecheck.get('codebase')
+            new_codebase = old_codebase.replace(current_version, latest_version)
+            updatecheck.set('codebase', new_codebase)
+        
+        # Pretty print XML to maintain formatting
+        if hasattr(ET, 'indent'):
+            ET.indent(tree, space="  ")
+            
+        tree.write(XML_FILE, encoding='utf-8', xml_declaration=False)
+        print("File updated.")
+    else:
+        print(f"Already up to date ({current_version}).")
+        # Create a dummy file to signal no changes were made
+        open('NO_CHANGES', 'w').close()
+except Exception as e:
+    print(f"Error: {e}")
+    exit(1)
+EOF
+          python check_release.py
+
+      - name: Commit and push changes
+        run: |
+          if [ ! -f NO_CHANGES ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add update.xml
+            git commit -m "Update version to latest release from ${TARGET_REPO}"
+            git push
+          else
+            echo "No changes to commit."
+          fi
