@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -63,9 +64,26 @@ else:
     if current_version:
         updatecheck.set("codebase", old_codebase.replace(current_version, latest_version))
 
+# Apply standard 2-space indentation
 if hasattr(ET, "indent"):
     ET.indent(tree, space="  ")
 
-tree.write(XML_FILE, encoding="utf-8", xml_declaration=False)
+# Write the XML with the declaration
+tree.write(XML_FILE, encoding="utf-8", xml_declaration=True)
 
-print("update.xml has been updated.")
+# Read the file back to fix the formatting exactly as you requested
+with open(XML_FILE, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# Fix XML declaration to use double quotes and uppercase UTF-8
+content = content.replace("<?xml version='1.0' encoding='utf-8'?>", '<?xml version="1.0" encoding="UTF-8"?>')
+content = content.replace("<?xml version='1.0' encoding='UTF-8'?>", '<?xml version="1.0" encoding="UTF-8"?>')
+
+# Ensure exactly one space before the closing /> on the updatecheck tag
+content = re.sub(r'(<updatecheck[^>]*?)(\s*/>)', r'\1 />', content)
+
+# Save the perfectly formatted file
+with open(XML_FILE, "w", encoding="utf-8") as f:
+    f.write(content)
+
+print("update.xml has been updated and formatted.")
