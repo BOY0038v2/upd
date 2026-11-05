@@ -3,7 +3,6 @@ name: Auto Update XML
 on:
   schedule:
     # Runs at minute 0 past every hour.
-    # You can change this, e.g., '0 */6 * * *' to run every 6 hours
     - cron: '0 * * * *'
   workflow_dispatch: # Allows you to run it manually from the GitHub Actions tab
 
@@ -49,7 +48,6 @@ try:
     with urllib.request.urlopen(req) as response:
         data = json.loads(response.read().decode())
 
-    # Extract version from tag (removes 'v' prefix if present)
     latest_version = data['tag_name']
     if latest_version.startswith('v'):
         latest_version = latest_version[1:]
@@ -68,7 +66,6 @@ try:
         print(f"New version found: {latest_version}")
         updatecheck.set('version', latest_version)
         
-        # Try to find the exact asset URL for the .chromium.crx file
         crx_url = None
         for asset in data.get('assets', []):
             if asset['name'].endswith('.chromium.crx'):
@@ -78,12 +75,10 @@ try:
         if crx_url:
             updatecheck.set('codebase', crx_url)
         else:
-            # Fallback: string replacement if the exact asset isn't found
             old_codebase = updatecheck.get('codebase')
             new_codebase = old_codebase.replace(current_version, latest_version)
             updatecheck.set('codebase', new_codebase)
         
-        # Pretty print XML to maintain formatting
         if hasattr(ET, 'indent'):
             ET.indent(tree, space="  ")
             
@@ -91,7 +86,6 @@ try:
         print("File updated.")
     else:
         print(f"Already up to date ({current_version}).")
-        # Create a dummy file to signal no changes were made
         open('NO_CHANGES', 'w').close()
 except Exception as e:
     print(f"Error: {e}")
